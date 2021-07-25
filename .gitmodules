@@ -1,0 +1,3 @@
+[submodule "SED-via-consistency-training-and-pseudo-labeling"]
+	path = SED-via-consistency-training-and-pseudo-labeling
+	url = https://github.com/jimmy133719/SED-via-consistency-training-and-pseudo-labeling.git
