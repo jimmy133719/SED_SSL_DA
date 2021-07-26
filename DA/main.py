@@ -111,10 +111,7 @@ def mixup_data_sup(x, y, alpha=1.0):
         lam = 1.
     batch_size = x.size()[0]
     index = np.random.permutation(batch_size)
-    # x, y = x.numpy(), y.numpy()
-    # mixed_x = torch.Tensor(lam * x + (1 - lam) * x[index,:])
     mixed_x = lam * x + (1 - lam) * x[index,:]
-    # y_a, y_b = torch.Tensor(y).type(torch.LongTensor), torch.Tensor(y[index]).type(torch.LongTensor)
     y_a, y_b = y, y[index]
     return mixed_x, y_a, y_b, lam
 
@@ -156,8 +153,7 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
     log = create_logger(__name__ + "/" + inspect.currentframe().f_code.co_name, terminal_level=cfg.terminal_level)
     class_criterion = nn.BCELoss()
     consistency_criterion = nn.MSELoss()
-    loss_domain = nn.CrossEntropyLoss()
-    class_criterion, consistency_criterion, loss_domain = to_cuda_if_available(class_criterion, consistency_criterion, loss_domain)
+    class_criterion, consistency_criterion = to_cuda_if_available(class_criterion, consistency_criterion)
 
     domain_acc = []
 
@@ -169,25 +165,20 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             # Generate input random shift feature 
             pooling_time_ratio = 4
             shift_list = [random.randint(-32,32)*pooling_time_ratio for iter in range(cfg.batch_size)]
-            # frequency shift
             freq_shift_list = [random.randint(-4,4) for iter in range(cfg.batch_size)]
             for k in range(cfg.batch_size):
                 input_shift = torch.roll(batch_input[k], shift_list[k], dims=1)
                 input_shift = torch.unsqueeze(input_shift, 0)
-                # frequency shift
                 input_freq_shift = torch.roll(batch_input[k], freq_shift_list[k], dims=2)
                 input_freq_shift = torch.unsqueeze(input_freq_shift, 0)
                 if k==0:
                     batch_input_shift = input_shift
-                    # frequency shift
                     batch_input_freq_shift = input_freq_shift
                 else:
                     batch_input_shift = torch.cat((batch_input_shift,input_shift), 0)
-                    # frequency shift
                     batch_input_freq_shift = torch.cat((batch_input_freq_shift,input_freq_shift), 0)
                 
             batch_input_shift = to_cuda_if_available(batch_input_shift)
-            # frequency shift
             batch_input_freq_shift = to_cuda_if_available(batch_input_freq_shift)
  
         global_step = c_epoch * len(train_loader) + i
@@ -201,6 +192,7 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             adjust_learning_rate(optimizer, rampup_value, optimizer_d=optimizer_d, optimizer_crnn=optimizer_crnn, c_epoch=c_epoch, rampup_value_adv=rampup_value_adv)
         meters.update('lr', optimizer.param_groups[0]['lr'])
 
+        # Generate DA labels for training discriminator
         if f_args.level == 'frame':
             domain_label = torch.zeros((24, 157, 2))
             domain_label[:18, :, 1] = 1 # target: 1 for axis 1
@@ -220,14 +212,13 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             weak_pred_ema = weak_pred_ema.detach()
         
         
-        adv_w = 1 #cfg.max_consistency_cost * rampup_value_adv * 0.5
+        adv_w = 1 # weight of adversarial loss
         update_step = 1
-        # update discriminator
+        # Update discriminator
         if discriminator is not None:
             if global_step % update_step == 0:
                 optimizer_d.zero_grad()
                 encoded_x, d_input = model(batch_input)
-                # strong_pred, weak_pred = predictor(encoded_x)
                 domain_pred = discriminator(d_input.detach())
 
                 # To balance source and target amount
@@ -236,31 +227,27 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
                 domain_pred = domain_pred[choice]
                 domain_label_original = domain_label[choice]
 
-
-                domain_loss_d = adv_w * class_criterion(domain_pred, domain_label_original)# + adv_w * class_criterion(domain_pred_shift, domain_label_shift) + adv_w * class_criterion(domain_pred_freq_shift, domain_label_freq_shift) # default: class_criterion
+                domain_loss_d = adv_w * class_criterion(domain_pred, domain_label_original)
                 domain_loss_d.backward()
                 optimizer_d.step()
                 
 
-        # update encoder
+        # Update feature extractor
         if discriminator is not None:
             if global_step % update_step == 0:
                 optimizer_d.zero_grad()     
                 optimizer_crnn.zero_grad()
                 encoded_x, d_input = model(batch_input)
-                # strong_pred, weak_pred = predictor(encoded_x)
                 domain_pred = discriminator(d_input)
 
-                # label
+                # Generate domain labels for training feature extractor
                 if f_args.level == 'frame':
-                    # domain_label = torch.zeros((18, 157, 3))
                     domain_label = torch.zeros((18, 157, 2))
                     domain_label[:18, :, 0] = 1 # target: 1 for axis 0
                 elif f_args.level == 'clip':
                     domain_label = torch.zeros((18, 2))
                     domain_label[:18, 0] = 1
                 
-                # domain_label = torch.zeros((18, 157, 1))
                 domain_label = to_cuda_if_available(domain_label)
                 
                 # To balance source and target amount
@@ -274,7 +261,7 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
                 optimizer_crnn.step()
         
 
-        # update encoder and predictor
+        # Update feature extractor and predictor
         optimizer.zero_grad()
         if discriminator is not None:
             optimizer_d.zero_grad() 
@@ -300,11 +287,10 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             # Shifted prediction
             encoded_x_shift, _ = model(batch_input_shift)
             strong_shift_pred, weak_shift_pred = predictor(encoded_x_shift)
-            # frequency shift
             encoded_x_freq_shift, _ = model(batch_input_freq_shift)
             strong_freq_shift_pred, weak_freq_shift_pred = predictor(encoded_x_freq_shift)
 
-            # setting for ICT
+            # Setting for ICT
             mask_unlabel = slice(6,18)
             mixup_sup_alpha = 1.0
             mixup_usup_alpha = 2.0
@@ -317,8 +303,12 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
         target_weak = target.max(-2)[0]  # Take the max in the time axis
         if mask_weak is not None:
             if ISP:
+                # Contain weak pseudo-label
                 weak_class_loss = class_criterion(torch.cat((weak_pred[mask_weak], weak_pred[mask_unlabel]), 0), torch.cat((target_weak[mask_weak], target_weak[mask_unlabel]), 0))
+                
+                # SCT
                 weak_freq_shift_class_loss = class_criterion(weak_freq_shift_pred[mask_weak], target_weak[mask_weak])
+                
                 # ICT
                 if mixup_sup_alpha:
                     mixed_input_weak, target_a_weak, target_b_weak, lam_weak = mixup_data_sup(batch_input[mask_weak], target_weak[mask_weak], mixup_sup_alpha)
@@ -344,9 +334,8 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             meters.update('Strong loss', strong_class_loss.item())
 
             if ISP:
-                # shift target loss
+                # SCT
                 strong_shift_class_loss = class_criterion(strong_shift_pred[mask_strong], strong_target_shift[mask_strong])
-                # frequency shift
                 strong_freq_shift_class_loss = class_criterion(strong_freq_shift_pred[mask_strong], target[mask_strong])
 
                 # ICT
@@ -391,11 +380,9 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
                     mixup_consistency_weak_loss = consistency_cost*mixup_consistency_weak_loss     
                     mixup_consistency_strong_loss = consistency_cost*mixup_consistency_strong_loss        
  
-        if discriminator is not None:
-            cls_w = 1
-            loss = cls_w * (strong_class_loss + weak_class_loss)
-        else:
-            loss = strong_class_loss
+ 
+        # Calculate loss for labeled data
+        loss = strong_class_loss + weak_class_loss
         
         if ema_model is not None:
             loss = loss + (consistency_loss_weak + consistency_loss_strong)
@@ -412,7 +399,7 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             
             if global_step % update_step == 0:
                 writer.add_scalar('Decoder domain loss', domain_loss_d.item(), niter)   
-                writer.add_scalar('Encoder domain loss', domain_loss.item(), niter)
+                writer.add_scalar('Feature extractor domain loss', domain_loss.item(), niter)
             
         writer.add_scalar('Strong class loss', strong_class_loss.item(), niter)
 
@@ -427,7 +414,6 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
             writer.add_scalar('Mixup consistency strong loss', mixup_consistency_strong_loss.item(), niter)    
             writer.add_scalar('Consistency shift', consistency_loss_shift.item(), niter)
             writer.add_scalar('Strong shift class loss', strong_shift_class_loss.item(), niter)
-            # frequency shift
             writer.add_scalar('Weak freq shift class loss', weak_freq_shift_class_loss.item(), niter)
             writer.add_scalar('Strong freq shift class loss', strong_freq_shift_class_loss.item(), niter)
 
@@ -436,21 +422,15 @@ def train(train_loader, model, optimizer, c_epoch, ema_model=None, ema_predictor
         meters.update('Loss', loss.item())
 
         
-        # # compute gradient and do optimizer step
+        # Compute gradient and do optimizer step
         loss.backward()
-        # plot_grad_flow(model.named_parameters())
-        if discriminator is not None:
-            # optimizer_crnn.step()
-            optimizer.step() # original setting
-        else:
-            optimizer.step()
+        optimizer.step()
 
         global_step += 1
         if ema_model is not None:
             update_ema_variables(model, ema_model, 0.999, global_step)
             update_ema_variables(predictor, ema_predictor, 0.999, global_step)
 
-    # writer.add_scalar('discriminator acc', sum(domain_acc)/len(domain_acc), c_epoch)
     epoch_time = time.time() - start
     log.info(f"Epoch: {c_epoch}\t Time {epoch_time:.2f}\t {meters}")
     return loss
@@ -485,11 +465,6 @@ def get_dfs(desed_dataset, nb_files=None, separated_sources=False):
     train_synth_df.onset = train_synth_df.onset * cfg.sample_rate // cfg.hop_size // pooling_time_ratio
     train_synth_df.offset = train_synth_df.offset * cfg.sample_rate // cfg.hop_size // pooling_time_ratio
     log.debug(valid_synth_df.event_label.value_counts())
-
-    # # Eval 2018 to report results
-    # eval2018 = pd.read_csv(cfg.eval2018, sep="\t")
-    # eval_2018_df = validation_df[validation_df.filename.isin(eval2018.filename)]
-    # log.debug(f"eval2018 len: {len(eval_2018_df)}")
 
     data_dfs = {"weak": weak_df,
                 "unlabel": unlabel_df,
@@ -541,22 +516,12 @@ if __name__ == '__main__':
     meanteacher = f_args.meanteacher
     ISP = f_args.ISP
 
-    if no_synthetic:
-        add_dir_model_name = "_no_synthetic"
-    else:
-        add_dir_model_name = "_with_synthetic"
+    model_name = # name your own model
 
-    other_description = '_fpn_{}D_from_pretrained'.format(f_args.level) # name your own model
-    if meanteacher:
-        other_description += '_meanteacher'
-    if ISP:
-        other_description += '_ISP_3'
-
-    store_dir = os.path.join("stored_data", "ADDA" + add_dir_model_name + other_description)
-    # store_dir = '/media/labhdd/JIMMY/sed/dcase20_task4/baseline/stored_data/MeanTeacher_with_synthetic_minmax_norm_pd/'
+    store_dir = os.path.join("stored_data", model_name)
     saved_model_dir = os.path.join(store_dir, "model")
     saved_pred_dir = os.path.join(store_dir, "predictions")
-    start_epoch = 51
+    start_epoch = 0
     if start_epoch == 0:
         writer = SummaryWriter(os.path.join(store_dir, "log"))
         os.makedirs(store_dir, exist_ok=True)
@@ -664,7 +629,6 @@ if __name__ == '__main__':
     logger.info("number of parameters in the model: {}".format(pytorch_total_params))
     
 
-
     if stage == 'adaptation':
         if f_args.level == 'frame':
             discriminator = Frame_Discriminator(**discriminator_kwargs)
@@ -693,7 +657,7 @@ if __name__ == '__main__':
             predictor_ema.apply(weights_init)
     # resume training
     else:
-        '''
+        
         model_path = os.path.join(saved_model_dir, 'baseline_epoch_{}'.format(start_epoch-1))
         # model_path = 'stored_data/Baseline_pretrained/model/dcase20_baseline_model.p'
         expe_state = torch.load(model_path, map_location="cpu")
@@ -709,27 +673,10 @@ if __name__ == '__main__':
         else:
             discriminator.load_state_dict(expe_state["model_d"]["state_dict"])
         predictor.load_state_dict(expe_state["model_p"]["state_dict"])
-        '''
-
-
-        #############################################################################################################################
-        # load crnn weight init w/o splitting into feature extractor and classifier 
-        crnn_init = torch.load('stored_data/MeanTeacher_with_synthetic_fpn_shift_ICT_pseudolabel_25/model/baseline_best', map_location="cpu")["model"]["state_dict"] #torch.load('crnn_init', map_location="cpu")
-        extractor_init = []
-        predictor_init = []
-        for key, value in crnn_init.items():
-            if 'dense' not in key:
-                extractor_init.append((key, value))
-            else:
-                predictor_init.append((key, value))
-        extractor_init = collections.OrderedDict(extractor_init)    
-        predictor_init = collections.OrderedDict(predictor_init) 
-        crnn.load_state_dict(extractor_init)
-        predictor.load_state_dict(predictor_init)
-        #############################################################################################################################
+        
 
         if meanteacher:
-            '''
+            
             # # match keys of teacher model
             # for key in list(expe_state["model_ema"]["state_dict"].keys()):
             #     if 'cnn.' in key:
@@ -737,23 +684,7 @@ if __name__ == '__main__':
             #         del expe_state["model_ema"]["state_dict"][key]
             crnn_ema.load_state_dict(expe_state["model_ema"]["state_dict"])
             predictor_ema.load_state_dict(expe_state["model_p_ema"]["state_dict"])
-            '''
-
-            #############################################################################################################################
-            # load crnn weight init w/o splitting into feature extractor and classifier 
-            crnn_init = torch.load('stored_data/MeanTeacher_with_synthetic_fcn_4/model/baseline_best', map_location="cpu")["model"]["state_dict"] #torch.load('crnn_init', map_location="cpu")
-            extractor_init = []
-            predictor_init = []
-            for key, value in crnn_init.items():
-                if 'dense' not in key:
-                    extractor_init.append((key, value))
-                else:
-                    predictor_init.append((key, value))
-            extractor_init = collections.OrderedDict(extractor_init)    
-            predictor_init = collections.OrderedDict(predictor_init) 
-            crnn_ema.load_state_dict(extractor_init)
-            predictor_ema.load_state_dict(predictor_init)
-            #############################################################################################################################
+            
 
     # pdb.set_trace()
     if meanteacher:
