@@ -1,1 +1,0 @@
-1. Same as ADDA_with_synthetic_clipD_2, but apply MeanTeacher_with_synthetic_2_nomeanteacher as initial weight
