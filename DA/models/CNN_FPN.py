@@ -36,7 +36,7 @@ class CNN_FPN(nn.Module):
                  kernel_size=[3, 3, 3], padding=[1, 1, 1], stride=[1, 1, 1], nb_filters=[64, 64, 64],
                  pooling=[(1, 4), (1, 4), (1, 4)]
                  ):
-        super(CNN, self).__init__()
+        super(CNN_FPN, self).__init__()
         self.nb_filters = nb_filters
         cnn = nn.Sequential()
 

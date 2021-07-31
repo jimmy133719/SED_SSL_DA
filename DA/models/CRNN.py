@@ -4,12 +4,12 @@ import torch.nn as nn
 import torch
 from torch.autograd import Function
 
-# from models.RNN import BidirectionalGRU
-# from models.CNN import CNN
-# from models.CNN_FPN import CNN_FPN
-from RNN import BidirectionalGRU
-from CNN import CNN
-from CNN_FPN import CNN_FPN
+from models.RNN import BidirectionalGRU
+from models.CNN import CNN
+from models.CNN_FPN import CNN_FPN
+# from RNN import BidirectionalGRU
+# from CNN import CNN
+# from CNN_FPN import CNN_FPN
 
 import pdb
 

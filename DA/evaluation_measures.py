@@ -117,7 +117,7 @@ def segment_based_evaluation_df(reference, estimated, time_resolution=0.2):
 
 
 def get_predictions(model, dataloader, decoder, pooling_time_ratio=1, thresholds=[0.5],
-                    median_window=1, save_predictions=None, del_model=False, learned_post=False, predictor=None, fpn=False):
+                    median_window=1, save_predictions=None, del_model=False, learned_post=False, predictor=None, fpn=False, saved_feature_dir=None):
     """ Get the predictions of a trained model on a specific set
     Args:
         model: torch.Module, a trained pytorch model (you usually want it to be in .eval() mode).
@@ -146,39 +146,22 @@ def get_predictions(model, dataloader, decoder, pooling_time_ratio=1, thresholds
         with torch.no_grad():
             if predictor != None:
                 encoded_x, feature_out = model(input_data)
-                # pred_strong, _, _ = predictor(encoded_x)
                 if fpn:
                     pred_strong, _ = predictor(encoded_x, inference=True)
                 else:
                     pred_strong, _ = predictor(encoded_x)
-                # pred_strong = pred_strong[:, :, :-1]
-                np.save('/media/labhdd/JIMMY/sed/dcase20_task4/baseline/feature_output/MeanTeacher_with_synthetic_DAfirst_shift_ICT_pseudolabel_2_pd/synth/{}'.format(i), feature_out.cpu().detach().numpy())
-                # np.save('/media/labhdd/JIMMY/sed/dcase20_task4/baseline/feature_output/DANN_v2/weak_sigmoid/{}'.format(i), sigmoid_out.cpu().detach().numpy())
-                # np.save('/media/labhdd/JIMMY/sed/dcase20_task4/baseline/feature_output/DANN_v2/weak_softmax/{}'.format(i), softmax_out.cpu().detach().numpy())
+                
+                if saved_feature_dir != None:
+                    np.save(os.path.join(saved_feature_dir, '{}'.format(i)), feature_out.cpu().detach().numpy())
             else:
                 if fpn:
                     pred_strong, _ = model(input_data, inference=True)
                 else:
                     seg_index = [range(0, 15), range(15, 31), range(31, 47), range(47, 62), range(62, 78), range(78, 94), range(94, 109), range(109, 125), range(125, 141), range(141, 156)]
                     pred_strong, _, pred_median = model(input_data, seg_index)
-                # pred_strong, _, _ = model(input_data)
-                # pred_strong, _, feature_out  = model(input_data)
-                # pred_strong, _, sigmoid_out, softmax_out  = model(input_data)
-            # np.save('/media/labhdd/JIMMY/sed/dcase20_task4/baseline/feature_output/No_DANN_pd/synth/{}'.format(i), feature_out.cpu().detach().numpy())
-            # np.save('/media/labhdd/JIMMY/sed/dcase20_task4/baseline/feature_output/DANN_v2/weak_sigmoid/{}'.format(i), sigmoid_out.cpu().detach().numpy())
-            # np.save('/media/labhdd/JIMMY/sed/dcase20_task4/baseline/feature_output/DANN_v2/weak_softmax/{}'.format(i), softmax_out.cpu().detach().numpy())
+
         pred_strong = pred_strong.cpu()
         pred_strong = pred_strong.detach().numpy()
-
-        '''
-        pred_median = pred_median.cpu().detach().numpy()
-        pred_median_interp = pred_strong.copy()
-        for idx, item in enumerate(seg_index):
-            # pdb.set_trace()
-            pred_median_interp[:, item, :] = np.tile(np.expand_dims(pred_median[:, idx, :], axis=1), (1, len(item), 1))
-        if i == 0:
-            logger.debug(pred_strong)
-        '''
 
         # Post processing and put predictions in a dataframe
         for j, pred_strong_it in enumerate(pred_strong):

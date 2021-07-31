@@ -18,7 +18,7 @@ from data_utils.Desed import DESED
 from data_utils.DataLoad import DataLoadDf, ConcatDataset, MultiStreamBatchSampler
 from TestModel import _load_crnn
 from evaluation_measures import get_predictions, psds_score, compute_psds_from_operating_points, compute_metrics, get_f_measure_by_class
-from models.CRNN import CRNN_fpn, CRNN, Discriminator, Predictor, Frame_Discriminator, Clip_Discriminator
+from models.CRNN import CRNN_fpn, CRNN, Predictor, Frame_Discriminator, Clip_Discriminator
 
 import config as cfg
 from utilities import ramps
@@ -44,7 +44,6 @@ def adjust_learning_rate(optimizer, rampup_value, rampdown_value=1, optimizer_d=
         rampup_value: float, the float value between 0 and 1 that should increases linearly
         rampdown_value: float, the float between 1 and 0 that should decrease linearly
     Returns:
-
     """
     # LR warm-up to handle large minibatch sizes from https://arxiv.org/abs/1706.02677
     # We commented parts on betas and weight decay to match 2nd system of last year from Orange
@@ -490,15 +489,15 @@ if __name__ == '__main__':
 
     parser.add_argument("-n", '--no_synthetic', dest='no_synthetic', action='store_true', default=False,
                         help="Not using synthetic labels during training")
-    # Use fpn
-    parser.add_argument("-fpn", '--use_fpn', type=str, default='F',
-                    help="Whether to use CRNN_fpn architecture, must be same as the saved model.'T' for True, 'F' for False.")
     # pretrain or adaptation
     parser.add_argument("-stage", '--stage', type=str, default='pretrain',
                     help="Choose the training stage of ADDA. 'pretrain' or 'adaptation'.")
     # clip-level or frame-level
     parser.add_argument("-level", '--level', type=str, default='frame',
                     help="Choose the level to do DA. 'clip' or 'frame'.")
+    # Use fpn
+    parser.add_argument("-fpn", '--use_fpn', action="store_true",
+                    help="Whether to use CRNN_fpn architecture.")
     # Use Meanteacher
     parser.add_argument("-mt", '--meanteacher', action="store_true",
                     help="Whether to use mean teacher method.")
@@ -515,13 +514,15 @@ if __name__ == '__main__':
     stage = f_args.stage
     meanteacher = f_args.meanteacher
     ISP = f_args.ISP
+    if ISP:
+        meanteacher = True
 
-    model_name = # name your own model
+    model_name = 'test_adaptation_FPN'# name your own model
 
     store_dir = os.path.join("stored_data", model_name)
     saved_model_dir = os.path.join(store_dir, "model")
     saved_pred_dir = os.path.join(store_dir, "predictions")
-    start_epoch = 0
+    start_epoch = 1
     if start_epoch == 0:
         writer = SummaryWriter(os.path.join(store_dir, "log"))
         os.makedirs(store_dir, exist_ok=True)
@@ -593,7 +594,7 @@ if __name__ == '__main__':
     weak_dataload = DataLoadDf(dfs["validation"], many_hot_encoder.encode_weak, transforms_valid, return_indexes=True, in_memory=cfg.in_memory)
     logger.debug(f"len synth: {len(train_synth_data)}, len_unlab: {len(unlabel_data)}, len weak: {len(weak_data)}")
 
-    if stage == 'adaptation' or (stage=='pretrain' and mt) or (stage=='pretrain' and ISP):
+    if stage == 'adaptation' or (stage=='pretrain' and meanteacher):
         if not no_synthetic:
             list_dataset = [weak_data, unlabel_data, train_synth_data]
             batch_sizes = [cfg.batch_size//4, cfg.batch_size//2, cfg.batch_size//4]
@@ -620,9 +621,9 @@ if __name__ == '__main__':
     # ##############
     # Model
     # ##############
-    if f_args.use_fpn=='T':
+    if f_args.use_fpn:
         crnn = CRNN_fpn(**crnn_kwargs)
-    elif f_args.use_fpn=='F':
+    else:
         crnn = CRNN(**crnn_kwargs)
     pytorch_total_params = sum(p.numel() for p in crnn.parameters() if p.requires_grad)
     logger.info(crnn)
@@ -633,16 +634,16 @@ if __name__ == '__main__':
         if f_args.level == 'frame':
             discriminator = Frame_Discriminator(**discriminator_kwargs)
         elif f_args.level == 'clip':
-            discriminator = Clip_iscriminator(**discriminator_kwargs)
+            discriminator = Clip_Discriminator(**discriminator_kwargs)
     else:
         discriminator = None
 
     predictor = Predictor(**predictor_kwargs)
     
     if meanteacher:
-        if f_args.use_fpn=='T':
+        if f_args.use_fpn:
             crnn_ema = CRNN_fpn(**crnn_kwargs)
-        elif f_args.use_fpn=='F':
+        else:
             crnn_ema = CRNN(**crnn_kwargs) 
         predictor_ema = Predictor(**predictor_kwargs)
 
@@ -656,37 +657,33 @@ if __name__ == '__main__':
             crnn_ema.apply(weights_init)
             predictor_ema.apply(weights_init)
     # resume training
-    else:
-        
+    else:        
         model_path = os.path.join(saved_model_dir, 'baseline_epoch_{}'.format(start_epoch-1))
-        # model_path = 'stored_data/Baseline_pretrained/model/dcase20_baseline_model.p'
         expe_state = torch.load(model_path, map_location="cpu")
-        # # match keys
-        # for key in list(expe_state["model"]["state_dict"].keys()):
-        #     if 'cnn.' in key:
-        #         expe_state["model"]["state_dict"][key.replace('cnn.', 'cnn.cnn.')] = expe_state["model"]["state_dict"][key]
-        #         del expe_state["model"]["state_dict"][key]
+        
+        if not f_args.use_fpn:
+            for key in list(expe_state["model"]["state_dict"].keys()): # match keys
+                if 'cnn.' in key:
+                    expe_state["model"]["state_dict"][key.replace('cnn.', 'cnn.cnn.')] = expe_state["model"]["state_dict"][key]
+                    del expe_state["model"]["state_dict"][key]
         crnn.load_state_dict(expe_state["model"]["state_dict"])
         
-        if start_epoch == 1 or start_epoch == 51:
-            discriminator.apply(weights_init) # for adversarial training
-        else:
-            discriminator.load_state_dict(expe_state["model_d"]["state_dict"])
+        if stage == 'adaptation':
+            if start_epoch == 1 or start_epoch == 51:
+                discriminator.apply(weights_init) # for adversarial training
+            else:
+                discriminator.load_state_dict(expe_state["model_d"]["state_dict"])
         predictor.load_state_dict(expe_state["model_p"]["state_dict"])
         
-
         if meanteacher:
-            
-            # # match keys of teacher model
-            # for key in list(expe_state["model_ema"]["state_dict"].keys()):
-            #     if 'cnn.' in key:
-            #         expe_state["model_ema"]["state_dict"][key.replace('cnn.', 'cnn.cnn.')] = expe_state["model_ema"]["state_dict"][key]
-            #         del expe_state["model_ema"]["state_dict"][key]
+            if not f_args.use_fpn:
+                for key in list(expe_state["model_ema"]["state_dict"].keys()): # match keys of teacher model
+                    if 'cnn.' in key:
+                        expe_state["model_ema"]["state_dict"][key.replace('cnn.', 'cnn.cnn.')] = expe_state["model_ema"]["state_dict"][key]
+                        del expe_state["model_ema"]["state_dict"][key]
             crnn_ema.load_state_dict(expe_state["model_ema"]["state_dict"])
             predictor_ema.load_state_dict(expe_state["model_p_ema"]["state_dict"])
             
-
-    # pdb.set_trace()
     if meanteacher:
         for param in crnn_ema.parameters():
             param.detach_()
@@ -840,7 +837,7 @@ if __name__ == '__main__':
         # Real validation data
         validation_labels_df = dfs["validation"].drop("feature_filename", axis=1)
         durations_validation = get_durations_df(cfg.validation, cfg.audio_validation_dir)
-        if f_args.use_fpn=='T':     
+        if f_args.use_fpn:     
             valid_predictions = get_predictions(crnn, validation_dataloader, many_hot_encoder.decode_strong,
                                             pooling_time_ratio, median_window=median_window, predictor=predictor, fpn=True)
         else:
@@ -912,16 +909,3 @@ if __name__ == '__main__':
                                         pooling_time_ratio, median_window=median_window,
                                         save_predictions=predicitons_fname, predictor=predictor)
     compute_metrics(valid_predictions, validation_labels_df, durations_validation)
-    # ##########
-    # Optional but recommended
-    # ##########
-    # Compute psds scores with multiple thresholds (more accurate). n_thresholds could be increased.
-    n_thresholds = 50
-    # Example of 5 thresholds: 0.1, 0.3, 0.5, 0.7, 0.9
-    list_thresholds = np.arange(1 / (n_thresholds * 2), 1, 1 / n_thresholds)
-    pred_ss_thresh = get_predictions(crnn, validation_dataloader, many_hot_encoder.decode_strong,
-                                     pooling_time_ratio, thresholds=list_thresholds, median_window=median_window,
-                                     save_predictions=predicitons_fname, predictor=predictor)
-    # compute_psds_from_operating_points(pred_ss_thresh, validation_labels_df, durations_validation)
-    psds = compute_psds_from_operating_points(pred_ss_thresh, validation_labels_df, durations_validation)
-    psds_score(psds, filename_roc_curves=os.path.join(saved_pred_dir, "figures/psds_roc.png"))
