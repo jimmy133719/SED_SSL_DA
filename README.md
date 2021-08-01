@@ -1,7 +1,7 @@
 # SED_SSL_DA
 A sound event detection system designed for DCASE 2020 task 4, which consists of large amount of weak label and unlabel audio clips.
 
-This work is based on the baseline of DCASE task 4 (https://github.com/turpaultn/dcase20_task4/tree/public_branch/baseline). 
+This work is based on the baseline of DCASE task 4 (https://github.com/turpaultn/dcase20_task4/tree/master/baseline). 
 
 We try to improve SED system in two directions, **semi-supervised learning** and **domain adaptation**.
 
