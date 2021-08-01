@@ -65,12 +65,12 @@ python TestModel.py -m=./stored_data/ADDA_with_synthetic_fpn_clipD/model/baselin
 
 Next,
 
-Do analysis on frame-level features
+do analysis on frame-level features
 ```
 python frameDA_analysis.py
 ```
 
-Or do analysis on clip-level features
+or do analysis on clip-level features
 ```
 python clipDA_analysis.py
 ```
