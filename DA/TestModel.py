@@ -169,7 +169,7 @@ if __name__ == '__main__':
                     help="Whether to use CRNN_fpn architecture.")  
     # Use predictor
     parser.add_argument("-pd", '--use_predictor', action="store_true",
-                    help="Whether to use adaptive post processing.")
+                    help="Whether to use label predictor.")
     # Dir to save embedding feature
     parser.add_argument("-sf", '--saved_feature_dir', type=str, default=None,
                         help="Path for the embedded features to be saved (if needed), Ex. embedded_feature/ADDA_with_synthetic_clipD_meanteacher_ISP, which kinds of data (weak/strong/synthetic) would be automatically detected")
