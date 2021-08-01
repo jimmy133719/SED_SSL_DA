@@ -11,7 +11,7 @@ We try to improve SED system in two directions, **semi-supervised learning** and
 ### Directory structure
 SED-via-consistency-training-and-pseudo-labeling/ and DA/ should be placed parallel to baseline/, and we highly recommend renaming SED-via-consistency-training-and-pseudo-labeling/ with SSL/.
 
-The directory structure should be like below:
+The directory structure should be like below (only show important contents):
 
 - dcase20_task4
     - dataset
@@ -19,57 +19,37 @@ The directory structure should be like below:
             - train
                 - weak
                     - Y--7jZxfzemI_13.000_23.000.wav
-                    - ...
                 - unlabel_in_domain
                     - Y--5uHDNDKxs_30.000_40.000.wav
-                    - ...
                 - synthetic20
                     - soundscapes
                         - 00.wav
-                        - ...
-                    - ...
-                - ...
             - validation
                 - Y--4gqARaEJE_0.000_10.000.wav
-                - ...
-            - ...
         - features
             - sr16000_win2048_hop255_mels128_nolog
                 - features
                     - train
                         - weak
                             - Y--7jZxfzemI_13.000_23.000.npy
-                            - ...
                         - unlabel_in_domain
                             - Y--5uHDNDKxs_30.000_40.000.npy
-                            - ...
-                        - ...
                     - synthetic20
                         - soundscapes
                             - 00.npy
-                            - ...
-                        - ...
                     - audio
                         - validation
                             - Y--4gqARaEJE_0.000_10.000.npy
-                            - ...
-                        - ...
-                - ...
         - metadata
             - train
                 - weak.tsv
                 - unlabel_in_domain.tsv
                 - synthetic20
                     - soundscapes.tsv
-                    - ...
-                - ...
             - validation
                 - validation.tsv
-                - ...
-            - ...
     - baseline
     - SSL
     - DA
-    - ...
 
 **Note:** Please refer to README.md in DA/ and SSL/ for the details of **semi-supervised learning** and **domain adaptation**
