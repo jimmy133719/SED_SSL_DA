@@ -45,6 +45,7 @@ python TestModel.py -m=model_path -g=../dataset/metadata/validation/validation.t
 ```
 **Note:** 
 -pd: use label prediction, **necessary**.
+
 -sf=embedded feature path: Directory path for saving embedded feature
 
 -------------------------------
