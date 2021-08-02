@@ -44,7 +44,7 @@ Choose a well-trained model (Ex. ./stored_data/ADDA_with_synthetic_fpn_clipD/mod
 python TestModel.py -m=model_path -g=../dataset/metadata/validation/validation.tsv -pd -fpn 
 ```
 **Note:** 
--pd: use label prediction, **necessary**.
+-pd: use label predictor, **necessary**.
 
 -sf=embedded feature path: Directory path for saving embedded feature
 
